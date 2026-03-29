@@ -1,69 +1,78 @@
-# Ovary Ultrasound Image Segmentation
 
-> 基于 U-Net 的卵巢超声图像自动分割系统
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-## 项目简介
+class DoubleConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.double_conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+    def forward(self, x):
+        return self.double_conv(x)
 
-本项目使用 2D U-Net 模型对卵巢超声图像进行自动分割，用于辅助生殖医学中的卵巢体积测量和功能评估。
+class Down(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.maxpool_conv = nn.Sequential(
+            nn.MaxPool2d(2),
+            DoubleConv(in_channels, out_channels)
+        )
+    def forward(self, x):
+        return self.maxpool_conv(x)
 
-- **数据集**: USOVA3D (3D 卵巢超声)
-- **模型**: 2D U-Net
-- **评估指标**: Dice Coefficient = 0.9899
+class Up(nn.Module):
+    def __init__(self, in_channels, out_channels, bilinear=True):
+        super().__init__()
+        if bilinear:
+            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        else:
+            self.up = nn.ConvTranspose2d(in_channels // 2, in_channels // 2, kernel_size=2, stride=2)
+        self.conv = DoubleConv(in_channels, out_channels)
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+        diffY = x2.size()[2] - x1.size()[2]
+        diffX = x2.size()[3] - x1.size()[3]
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
+                        diffY // 2, diffY - diffY // 2])
+        x = torch.cat([x2, x1], dim=1)
+        return self.conv(x)
 
-## 项目结构
+class OutConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(OutConv, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+    def forward(self, x):
+        return self.conv(x)
 
-```
-ovary_segmentation_project/
-├── src/
-│   ├── model.py          # U-Net 模型定义
-│   ├── data_loader.py    # 数据加载模块
-│   └── train.py          # 训练脚本
-├── results/              # 可视化结果
-├── models/               # 训练好的模型权重
-└── README.md             # 项目说明
-```
-
-## 快速开始
-
-### 环境要求
-- Python 3.8+
-- PyTorch 1.10+
-- numpy, matplotlib, tqdm
-
-### 数据准备
-1. 下载 USOVA3D 数据集
-2. 将数据转换为 npy 格式
-
-### 训练模型
-```bash
-python src/train.py
-```
-
-## 实验结果
-
-| 指标 | 数值 |
-|------|------|
-| 平均 Dice | 0.9899 |
-| 最佳 Dice | 0.9971 |
-| 最差 Dice | 0.9699 |
-
-## 可视化结果
-
-![训练曲线](results/training_curve.png)
-![预测结果](results/prediction_results.png)
-
-## 临床意义
-
-- 自动分割卵巢区域，辅助计算卵巢体积
-- 为卵泡计数和发育监测提供基础
-- 提高生殖医学影像分析的效率和一致性
-
-## 参考文献
-
-- USOVA3D Dataset: https://usova3d.um.si/
-- U-Net: Ronneberger et al., MICCAI 2015
-
-## 联系方式
-
-- 作者：胡静怡
-- 邮箱：HJY_academic@outlook.com
+class UNet2D(nn.Module):
+    def __init__(self, n_channels=1, n_classes=1, bilinear=True):
+        super(UNet2D, self).__init__()
+        self.inc = DoubleConv(n_channels, 64)
+        self.down1 = Down(64, 128)
+        self.down2 = Down(128, 256)
+        self.down3 = Down(256, 512)
+        factor = 2 if bilinear else 1
+        self.down4 = Down(512, 1024 // factor)
+        self.up1 = Up(1024, 512 // factor, bilinear)
+        self.up2 = Up(512, 256 // factor, bilinear)
+        self.up3 = Up(256, 128 // factor, bilinear)
+        self.up4 = Up(128, 64, bilinear)
+        self.outc = OutConv(64, n_classes)
+    def forward(self, x):
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+        return self.outc(x)

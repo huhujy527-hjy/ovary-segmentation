@@ -66,4 +66,4 @@ python src/train.py
 ## 联系方式
 
 - 作者：胡静怡
-- 邮箱：huhujy527@gmail.com
+- 邮箱：HJY_academic@outlook.com
