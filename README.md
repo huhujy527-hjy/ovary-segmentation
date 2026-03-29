@@ -49,8 +49,13 @@ python src/train.py
 
 ## 可视化结果
 
-![训练曲线](results/training_curve.png)
-![预测结果](results/prediction_results.png)
+### 训练曲线
+![训练曲线](training_curve.png)
+
+### 预测结果对比
+![预测结果](prediction_results.png)
+
+上图中，从左到右依次为：原始超声图像、真实掩码、模型预测掩码。绿色和红色区域分别表示卵巢和卵泡的预测结果。
 
 ## 临床意义
 
